@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Вид из окна</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Onest:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #03030a; --panel: rgba(6,6,16,0.92); --border: rgba(255,255,255,0.07);
+  --accent: #ff6b35; --accent-dim: rgba(255,107,53,0.12); --accent-glow: rgba(255,107,53,0.4);
+  --home: #ff2255; --text: rgba(255,255,255,0.85); --dim: rgba(255,255,255,0.32);
+  --faint: rgba(255,255,255,0.14);
+  --safe-top: max(12px, env(safe-area-inset-top));
+  --safe-right: max(12px, env(safe-area-inset-right));
+  --safe-bottom: max(12px, env(safe-area-inset-bottom));
+  --safe-left: max(12px, env(safe-area-inset-left));
+  --top-ui: calc(var(--safe-top) + 12px);
+}
+html,body { width:100%; height:100%; background:var(--bg); font-family:'Onest',sans-serif; overflow:hidden; }
+#map { position:absolute; inset:0; }
+
+.glass {
+  position:fixed; background:var(--panel);
+  backdrop-filter:blur(28px) saturate(160%);
+  -webkit-backdrop-filter:blur(28px) saturate(160%);
+  border:1px solid var(--border); color:var(--text); z-index:20; border-radius:20px;
+}
+#hd { top:var(--top-ui); left:50%; transform:translateX(-50%); overflow:hidden; }
+#hd-inner { display:flex; align-items:center; justify-content:center; }
+#hd-badge { background:var(--accent); padding:13px 24px; font-family:'DM Mono',monospace; font-size:10px; font-weight:500; letter-spacing:.12em; text-transform:uppercase; color:#fff; white-space:nowrap; }
+#hd-text { padding:0 24px; text-align:center; }
+#hd-title { font-size:13px; font-weight:600; letter-spacing:.04em; white-space:nowrap; }
+#hd-sub   { font-size:10.5px; color:var(--dim); margin-top:4px; white-space:nowrap; }
+#hd-sub a { color:var(--dim); text-decoration:none; pointer-events:auto; }
+#hd-sub a:hover { color:var(--text); }
+
+#addrbar { top:var(--top-ui); left:20px; padding:10px; display:flex; align-items:center; gap:8px; min-width:420px; max-width:min(720px, calc(100vw - 40px)); }
+#address-input { flex:1; min-width:180px; background:rgba(255,255,255,.04); border:1px solid var(--border); color:var(--text); border-radius:12px; padding:12px 14px; font:500 13px 'Onest',sans-serif; outline:none; }
+#address-input::placeholder { color:var(--dim); }
+#address-input:focus { border-color:rgba(255,107,53,.35); box-shadow:0 0 0 3px rgba(255,107,53,.08); }
+#addr-actions { display:flex; gap:8px; }
+#addrbar .btn { padding:12px 14px; border:1px solid transparent; }
+#addr-open { background:var(--accent-dim); color:var(--accent); }
+#addr-open:hover { background:rgba(255,107,53,.18); color:#ff8b62; }
+#addr-save:hover { background:rgba(255,255,255,.08); }
+@media (max-width: 900px) {
+  #addrbar {
+    top: var(--top-ui);
+    left: var(--safe-left);
+    right: var(--safe-right);
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    padding: 8px;
+    gap: 8px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  #address-input {
+    min-width: 0;
+    width: 100%;
+    font-size: 16px;
+    padding: 13px 14px;
+  }
+  #addr-actions { width: 100%; }
+  #addr-actions .btn { flex: 1; justify-content: center; min-height: 46px; }
+
+  #hd {
+    top: calc(var(--top-ui) + 88px);
+    left: 50%;
+    width: calc(100vw - var(--safe-left) - var(--safe-right) - 24px);
+    max-width: 420px;
+  }
+  #hd-badge { padding: 12px 16px; font-size: 9px; letter-spacing: .1em; }
+  #hd-text { padding: 0 16px; }
+  #hd-title { font-size: 12px; }
+  #hd-sub { font-size: 10px; }
+
+  #ctrl {
+    top: calc(var(--top-ui) + 150px);
+    right: var(--safe-right);
+    min-width: 0;
+    width: min(220px, calc(100vw - var(--safe-right) - var(--safe-left) - 12px));
+  }
+
+  #stats {
+    left: var(--safe-left);
+    bottom: var(--safe-bottom);
+    max-width: min(270px, calc(100vw - var(--safe-left) - var(--safe-right) - 88px));
+    padding: 16px 18px 18px;
+  }
+  #st-count { font-size: 44px; }
+  #st-fact { max-width: none; }
+  #st-hint { max-width: none; }
+
+  #leg {
+    right: var(--safe-right);
+    bottom: var(--safe-bottom);
+    padding: 14px 16px 16px;
+    max-width: 156px;
+  }
+  #leg-title { margin-bottom: 10px; }
+  .leg-row { gap: 10px; margin-bottom: 9px; font-size: 11px; }
+
+  #toast {
+    left: 50%;
+    bottom: calc(var(--safe-bottom) + 96px);
+    max-width: calc(100vw - 32px);
+  }
+}
+
+#stats { bottom:24px; left:24px; padding:20px 24px 22px; min-width:200px; }
+#st-label { font-size:10px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--dim); margin-bottom:8px; }
+#st-count { font-family:'DM Mono',monospace; font-size:52px; font-weight:500; color:var(--accent); line-height:1; letter-spacing:-.02em; }
+#st-count sup { font-size:22px; vertical-align:super; opacity:.5; margin-left:3px; }
+.sep { width:100%; height:1px; background:var(--border); margin:14px 0; }
+#st-hint { font-size:11.5px; color:var(--dim); line-height:1.6; max-width:185px; }
+#st-fact { margin-top:14px; padding-top:14px; border-top:1px solid var(--border); max-width:210px; }
+#st-fact-label { font-size:10px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); margin-bottom:6px; }
+#st-fact-value { font-size:12.5px; line-height:1.5; color:var(--text); }
+#st-fact-value span { color:var(--accent); font-family:'DM Mono',monospace; }
+
+#leg { bottom:24px; right:24px; padding:18px 22px 20px; }
+#leg-title { font-size:9.5px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; color:var(--faint); margin-bottom:14px; }
+.leg-row { display:flex; align-items:center; gap:12px; margin-bottom:11px; font-size:12px; color:var(--dim); }
+.leg-row:last-child { margin-bottom:0; }
+.swatch { width:16px; height:16px; border-radius:5px; flex-shrink:0; }
+
+#ctrl { top:var(--top-ui); right:20px; padding:8px; display:flex; flex-direction:column; gap:3px; min-width:210px; }
+.btn { background:transparent; border:none; border-radius:12px; padding:9px 15px; color:var(--dim); font-family:'Onest',sans-serif; font-size:12px; font-weight:500; cursor:pointer; transition:background .18s,color .18s; text-align:left; letter-spacing:.02em; white-space:nowrap; display:flex; align-items:center; gap:8px; }
+.btn:hover { background:rgba(255,255,255,.06); color:var(--text); }
+.btn.on { background:var(--accent-dim); color:var(--accent); }
+.btn.danger:hover { background:rgba(255,50,50,.1); color:#ff5555; }
+.btn-sep { height:1px; background:var(--border); margin:4px 2px; }
+#nav-host { display:block; width:100%; margin-top:2px; }
+#nav-host .maplibregl-ctrl-group {
+  display:flex!important;
+  gap:8px;
+  width:100%;
+  background:transparent!important;
+  border:none!important;
+  box-shadow:none!important;
+  overflow:visible!important;
+}
+#nav-host .maplibregl-ctrl-group button{
+  flex:1 1 0;
+  width:auto!important;
+  height:54px!important;
+  background:rgba(255,255,255,.03)!important;
+  border:1px solid var(--border)!important;
+  border-radius:14px!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+}
+#nav-host .maplibregl-ctrl-group button:hover{
+  background:rgba(255,255,255,.08)!important;
+}
+#nav-host .maplibregl-ctrl-group button + button{
+  border-top:1px solid var(--border)!important;
+}
+#nav-host .maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon,
+#nav-host .maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon{
+  filter:invert(1) opacity(.9)!important;
+  transform:scale(1.08);
+}
+#nav-host .maplibregl-ctrl-compass{
+  flex:1.05 1 0;
+}
+#nav-host .maplibregl-ctrl-compass .maplibregl-ctrl-icon{
+  filter:invert(1) opacity(.9)!important;
+  transform:scale(.88);
+}
+#bearing { font-family:'DM Mono',monospace; font-size:10px; color:var(--faint); text-align:center; padding:7px 2px 1px; letter-spacing:.06em; }
+
+#toast { position:fixed; bottom:110px; left:50%; transform:translateX(-50%) translateY(8px); background:var(--panel); backdrop-filter:blur(20px); border:1px solid var(--border); border-radius:10px; padding:9px 18px; font-size:12px; font-weight:500; opacity:0; transition:opacity .22s,transform .22s; z-index:100; pointer-events:none; white-space:nowrap; color:var(--dim); }
+#toast.on { opacity:1; transform:translateX(-50%) translateY(0); }
+#toast.add { color:var(--accent); border-color:rgba(255,107,53,.3); }
+#toast.rem { color:rgba(255,255,255,.4); }
+
+#tip { position:fixed; background:var(--panel); backdrop-filter:blur(20px); border:1px solid var(--border); border-radius:9px; padding:7px 12px; font-size:11px; color:var(--dim); pointer-events:none; z-index:50; opacity:0; transition:opacity .15s; white-space:nowrap; }
+#tip.show { opacity:1; }
+
+@keyframes pulse { 0%{transform:scale(1);opacity:.7} 50%{transform:scale(2.8);opacity:0} 100%{transform:scale(1);opacity:0} }
+.hring { position:absolute; inset:-4px; border-radius:50%; border:2px solid var(--home); animation:pulse 2.4s ease-out infinite; }
+.hdot  { width:14px; height:14px; background:var(--home); border-radius:50%; box-shadow:0 0 12px rgba(255,34,85,.7),0 0 28px rgba(255,34,85,.3); position:relative; }
+
+
+@media (max-width: 640px) {
+  #hd { top: calc(var(--top-ui) + 92px); width: calc(100vw - var(--safe-left) - var(--safe-right) - 16px); }
+  #hd-inner { flex-direction: column; }
+  #hd-badge { width: 100%; text-align: center; border-radius: 20px 20px 0 0; }
+  #hd-text { width: 100%; padding: 12px 14px 14px; }
+  #ctrl {
+    top: auto;
+    bottom: calc(var(--safe-bottom) + 12px);
+    right: var(--safe-right);
+    width: 168px;
+  }
+  #ctrl .btn { font-size: 11px; }
+  #nav-host .maplibregl-ctrl-group button { height: 50px !important; }
+  #stats {
+    max-width: calc(100vw - var(--safe-left) - var(--safe-right) - 188px);
+    min-width: 0;
+    padding: 14px 16px 16px;
+  }
+  #leg { display: none; }
+  #bearing { font-size: 9px; }
+}
+
+#loading { position:fixed; inset:0; background:var(--bg); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:200; transition:opacity .5s; }
+#loading.fade { opacity:0; pointer-events:none; }
+.ld { width:6px; height:6px; background:var(--accent); border-radius:50%; display:inline-block; margin:0 3px; animation:blink 1.2s ease-in-out infinite; }
+.ld:nth-child(2){animation-delay:.2s} .ld:nth-child(3){animation-delay:.4s}
+@keyframes blink { 0%,80%,100%{opacity:.2;transform:scale(.8)} 40%{opacity:1;transform:scale(1)} }
+#ld-txt { font-family:'DM Mono',monospace; font-size:11px; color:var(--faint); letter-spacing:.1em; margin-top:20px; }
+
+
+.maplibregl-ctrl-top-left,.maplibregl-ctrl-bottom-left,.maplibregl-ctrl-bottom-right{display:none!important}
+.maplibregl-ctrl-logo{display:none!important}
+.maplibregl-ctrl-attrib{background:rgba(3,3,10,.7)!important;border-radius:8px!important;font-size:9px!important;color:rgba(255,255,255,.2)!important}
+.maplibregl-ctrl-attrib a{color:rgba(255,255,255,.25)!important}
+.maplibregl-ctrl-group{background:var(--panel)!important;border:1px solid var(--border)!important;border-radius:14px!important;overflow:hidden!important;box-shadow:none!important}
+.maplibregl-ctrl-group button{
+  background:transparent!important;
+  border-color:var(--border)!important;
+  width:48px!important;
+  height:48px!important;
+}
+.maplibregl-ctrl-group .maplibregl-ctrl-compass{
+  width:56px!important;
+  height:56px!important;
+}
+.maplibregl-ctrl-group .maplibregl-ctrl-compass .maplibregl-ctrl-icon{
+  transform:scale(1.2);
+}
+.maplibregl-ctrl-group button{background:transparent!important;border-color:var(--border)!important}
+.maplibregl-ctrl-group button:hover{background:rgba(255,255,255,.06)!important}
+.maplibregl-ctrl-icon{filter:invert(1) opacity(.35)!important}
+.maplibregl-ctrl-group button+button{border-top-color:var(--border)!important}
+.maplibregl-ctrl-top-right.nav-mounted {
+  opacity:0!important;
+  pointer-events:none!important;
+  width:0!important;
+  height:0!important;
+  overflow:hidden!important;
+}
+
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div><span class="ld"></span><span class="ld"></span><span class="ld"></span></div>
+  <div id="ld-txt">геокодирую адрес...</div>
+</div>
+<div id="map"></div>
+
+
+<div class="glass" id="hd">
+  <div id="hd-inner">
+    <div id="hd-badge">А ИЗ НАШЕГО ОКНА</div>
+    <div id="hd-text">
+      <div id="hd-title">Вид из окна</div>
+      <div id="hd-sub">by Andrei <a href="https://www.instagram.com/hspay" target="_blank" rel="noopener noreferrer">@hspay</a></div>
+    </div>
+  </div>
+</div>
+
+
+
+<div class="glass" id="addrbar">
+  <input id="address-input" type="text" placeholder="Введите адрес дома" />
+  <div id="addr-actions">
+    <button class="btn" id="addr-open" onclick="applyAddress()">Открыть адрес</button>
+    <button class="btn" id="addr-save" onclick="saveMarks(true)">Сохранить отметки</button>
+  </div>
+</div>
+
+<div class="glass" id="stats">
+  <div id="st-label">Отмечено зданий</div>
+  <div id="st-count"><span id="cnt">0</span><sup>зд</sup></div>
+  <div class="sep"></div>
+  <div id="st-hint">Нажмите на здание, которое видите из окна — оно загорится целиком</div>
+  <div id="st-fact">
+    <div id="st-fact-label">Интересный факт</div>
+    <div id="st-fact-value">Самый дальний объект: <span id="farthest-distance">—</span></div>
+  </div>
+</div>
+
+<div class="glass" id="leg">
+  <div id="leg-title">Обозначения</div>
+  <div class="leg-row"><div class="swatch" style="background:var(--accent);box-shadow:0 0 10px var(--accent-glow)"></div>Вижу из окна</div>
+  <div class="leg-row"><div class="swatch" style="background:var(--home);border-radius:50%;box-shadow:0 0 10px rgba(255,34,85,.6)"></div>Мой дом</div>
+  <div class="leg-row"><div class="swatch" style="background:#1a1a2c;border:1px solid rgba(255,255,255,.1)"></div>Другие здания</div>
+  <div class="leg-row"><div class="swatch" style="background:transparent;border:1.5px dashed rgba(255,107,53,.45);border-radius:50%"></div>Радиус ~600м</div>
+</div>
+
+<div class="glass" id="ctrl">
+  <button class="btn on" id="btn-r" onclick="toggleRadius()"><span>⊙</span> Радиус видимости</button>
+  <button class="btn danger" onclick="resetAll()"><span>↺</span> Сбросить всё</button>
+  <div class="btn-sep"></div>
+  <div id="nav-host" aria-label="Управление картой"></div>
+  <div id="bearing">0° С</div>
+</div>
+
+<div id="tip"></div>
+<div id="toast"></div>
+
+<script>
+const DEFAULT_ADDRESS = 'Малая Грузинская 25с2, Москва, Россия';
+const FALLBACK = [37.5705, 55.7648];
+const RADIUS   = 620;
+const STORAGE_NS = 'window-visibility-v3';
+
+let HOME       = FALLBACK;
+let showRadius = true;
+let toastTmr   = null;
+let currentAddress = getInitialAddress();
+
+// Marked buildings stored as:  key → GeoJSON Feature
+// key = centroid of the feature's bbox, stable across queries
+let marked = new Map();
+
+// Building layer IDs discovered after map load
+let buildingLayerIds = [];
+let buildingExtrusionLayerIds = [];
+let buildingFillLayerIds = [];
+
+
+function getInitialAddress() {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get('address');
+    return (fromUrl && fromUrl.trim()) || DEFAULT_ADDRESS;
+  } catch(e) {
+    return DEFAULT_ADDRESS;
+  }
+}
+
+function normalizeAddressKey(addr) {
+  return (addr || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function storageKey(addr = currentAddress) {
+  return `${STORAGE_NS}:${normalizeAddressKey(addr)}`;
+}
+
+function syncAddressUI() {
+  const input = document.getElementById('address-input');
+  if (input) input.value = currentAddress;
+  try { document.title = 'Вид из окна'; } catch(e) {}
+}
+
+function applyMarkedToMap() {
+  const map = window._map;
+  if (map?.getSource('hl')) map.getSource('hl').setData(markedFC());
+  updateStats();
+}
+
+function loadMarksFromStorage(addr = currentAddress) {
+  marked.clear();
+  try {
+    const raw = localStorage.getItem(storageKey(addr));
+    if (!raw) return;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return;
+    arr.forEach(f => {
+      const key = featureKey(f);
+      if (key) marked.set(key, f);
+    });
+  } catch(e) {
+    console.warn('Failed to load saved marks', e);
+  }
+}
+
+function saveMarks(showNotice = false) {
+  try {
+    if (!marked.size) {
+      localStorage.removeItem(storageKey());
+    } else {
+      localStorage.setItem(storageKey(), JSON.stringify([...marked.values()]));
+    }
+    if (showNotice) toast(marked.size ? 'Отметки сохранены локально' : 'Сохранён пустой список', true);
+  } catch(e) {
+    if (showNotice) toast('Не удалось сохранить отметки', false);
+  }
+}
+
+function applyAddress() {
+  const input = document.getElementById('address-input');
+  const next = input?.value?.trim();
+  if (!next) {
+    toast('Введите адрес', false);
+    return;
+  }
+  const url = new URL(window.location.href);
+  url.searchParams.set('address', next);
+  window.location.href = url.toString();
+}
+
+// ── Geocode ──────────────────────────────────────────────────
+async function geocode(addr, timeoutMs = 2600) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const r = await fetch(
+      'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(addr),
+      {
+        headers: { 'Accept-Language': 'ru,en' },
+        signal: controller ? controller.signal : undefined
+      }
+    );
+    const d = await r.json();
+    if (d?.[0]) return [parseFloat(d[0].lon), parseFloat(d[0].lat)];
+  } catch(e) {}
+  finally {
+    if (timer) clearTimeout(timer);
+  }
+  return null;
+}
+
+// ── Stable key from geometry bbox centroid ───────────────────
+function featureKey(f) {
+  let x0=Infinity, x1=-Infinity, y0=Infinity, y1=-Infinity;
+  function walk(n) {
+    if (typeof n[0] === 'number') {
+      x0=Math.min(x0,n[0]); x1=Math.max(x1,n[0]);
+      y0=Math.min(y0,n[1]); y1=Math.max(y1,n[1]);
+    } else n.forEach(walk);
+  }
+  try { walk(f.geometry.coordinates); } catch(e) { return null; }
+  return ((x0+x1)/2).toFixed(5) + ',' + ((y0+y1)/2).toFixed(5);
+}
+
+function featureCenter(f) {
+  let x0=Infinity, x1=-Infinity, y0=Infinity, y1=-Infinity;
+  function walk(n) {
+    if (typeof n[0] === 'number') {
+      x0=Math.min(x0,n[0]); x1=Math.max(x1,n[0]);
+      y0=Math.min(y0,n[1]); y1=Math.max(y1,n[1]);
+    } else n.forEach(walk);
+  }
+  try { walk(f.geometry.coordinates); } catch(e) { return null; }
+  if (!isFinite(x0) || !isFinite(x1) || !isFinite(y0) || !isFinite(y1)) return null;
+  return [(x0+x1)/2, (y0+y1)/2];
+}
+
+function haversineMeters(a, b) {
+  if (!a || !b) return 0;
+  const toRad = deg => deg * Math.PI / 180;
+  const R = 6371000;
+  const dLat = toRad(b[1] - a[1]);
+  const dLng = toRad(b[0] - a[0]);
+  const lat1 = toRad(a[1]);
+  const lat2 = toRad(b[1]);
+  const s = Math.sin(dLat/2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng/2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+function formatKm(meters) {
+  if (!isFinite(meters) || meters <= 0) return '—';
+  const km = meters / 1000;
+  return (km < 10 ? km.toFixed(2) : km.toFixed(1)).replace('.', ',') + ' км';
+}
+
+function updateStats() {
+  const cnt = document.getElementById('cnt');
+  if (cnt) cnt.textContent = marked.size;
+
+  const farthestEl = document.getElementById('farthest-distance');
+  if (!farthestEl) return;
+
+  if (!marked.size) {
+    farthestEl.textContent = '—';
+    return;
+  }
+
+  let farthest = 0;
+  for (const feature of marked.values()) {
+    const center = featureCenter(feature);
+    if (!center) continue;
+    const dist = haversineMeters(HOME, center);
+    if (dist > farthest) farthest = dist;
+  }
+
+  farthestEl.textContent = farthest > 0 ? formatKm(farthest) : '—';
+}
+
+
+function pointInRingScreen(point, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1];
+    const xj = ring[j][0], yj = ring[j][1];
+    const intersect = ((yi > point.y) !== (yj > point.y)) &&
+      (point.x < ((xj - xi) * (point.y - yi)) / ((yj - yi) || 1e-12) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function pointInPolygonScreen(point, polygonCoords, map) {
+  if (!polygonCoords?.length) return false;
+  const projected = polygonCoords.map(ring => ring.map(coord => {
+    const p = map.project(coord);
+    return [p.x, p.y];
+  }));
+  if (!pointInRingScreen(point, projected[0])) return false;
+  for (let i = 1; i < projected.length; i++) {
+    if (pointInRingScreen(point, projected[i])) return false;
+  }
+  return true;
+}
+
+function projectedPolygonDistance(point, polygonCoords, map) {
+  if (!polygonCoords?.length || !polygonCoords[0]?.length) return Infinity;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  polygonCoords[0].forEach(coord => {
+    const p = map.project(coord);
+    x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
+    y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
+  });
+  const cx = (x0 + x1) / 2;
+  const cy = (y0 + y1) / 2;
+  return Math.hypot(point.x - cx, point.y - cy);
+}
+
+function normalizeBuildingFeature(feature, point, map) {
+  if (!feature?.geometry) return null;
+  const type = feature.geometry.type;
+  if (type === 'Polygon') return JSON.parse(JSON.stringify(feature));
+  if (type !== 'MultiPolygon') return JSON.parse(JSON.stringify(feature));
+
+  const polygons = feature.geometry.coordinates;
+  let picked = null;
+
+  for (const polygon of polygons) {
+    if (pointInPolygonScreen(point, polygon, map)) {
+      picked = polygon;
+      break;
+    }
+  }
+
+  if (!picked) {
+    let best = Infinity;
+    for (const polygon of polygons) {
+      const dist = projectedPolygonDistance(point, polygon, map);
+      if (dist < best) {
+        best = dist;
+        picked = polygon;
+      }
+    }
+  }
+
+  const clone = JSON.parse(JSON.stringify(feature));
+  clone.geometry = { type: 'Polygon', coordinates: picked || polygons[0] };
+  return clone;
+}
+
+function getTopBuildingFeature(map, point) {
+  const layersToTry = [buildingExtrusionLayerIds, buildingFillLayerIds, buildingLayerIds]
+    .filter(arr => Array.isArray(arr) && arr.length);
+
+  for (const layers of layersToTry) {
+    const hits = map.queryRenderedFeatures(point, { layers });
+    if (!hits.length) continue;
+    const normalized = normalizeBuildingFeature(hits[0], point, map);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+// ── GeoJSON helpers ──────────────────────────────────────────
+const emptyFC = () => ({ type:'FeatureCollection', features:[] });
+const markedFC = () => ({ type:'FeatureCollection', features:[...marked.values()] });
+
+// ── Circle geometry ──────────────────────────────────────────
+function makeCircle(center, rm, steps=80) {
+  const [lng,lat]=center, R=6371000, c=[];
+  for (let i=0;i<=steps;i++) {
+    const a=(i/steps)*2*Math.PI;
+    c.push([
+      lng+(rm/R)*(180/Math.PI)/Math.cos(lat*Math.PI/180)*Math.sin(a),
+      lat+(rm/R)*(180/Math.PI)*Math.cos(a)
+    ]);
+  }
+  return {type:'Feature',geometry:{type:'Polygon',coordinates:[c]}};
+}
+
+function hideLoading() {
+  const el = document.getElementById('loading');
+  if (!el || el.classList.contains('fade')) return;
+  el.classList.add('fade');
+  setTimeout(() => { try { el.remove(); } catch(e) {} }, 600);
+}
+
+function safeToast(msg, add = false) {
+  try { toast(msg, add); } catch(e) {}
+}
+
+// ── MAIN ─────────────────────────────────────────────────────
+async function init() {
+  syncAddressUI();
+  loadMarksFromStorage(currentAddress);
+  applyMarkedToMap();
+
+  const isDefaultAddress = normalizeAddressKey(currentAddress) === normalizeAddressKey(DEFAULT_ADDRESS);
+  setLd(isDefaultAddress ? 'загружаю карту...' : 'геокодирую адрес...');
+  if (!isDefaultAddress) {
+    const coord = await geocode(currentAddress, 2400);
+    if (coord) HOME = coord;
+  }
+  updateStats();
+  setLd('загружаю карту...');
+
+  const loadingFailsafe = setTimeout(() => {
+    hideLoading();
+    safeToast('Карта загружается дольше обычного', false);
+  }, 4200);
+
+  const map = new maplibregl.Map({
+    container:'map',
+    style:'https://tiles.openfreemap.org/styles/liberty',
+    center:HOME, zoom:16.3, pitch:42, bearing:-15, antialias:true,
+    attributionControl:{compact:true}
+  });
+  window._map = map;
+  const navControl = new maplibregl.NavigationControl({visualizePitch:true});
+  map.addControl(navControl, 'top-right');
+  map.on('error', () => {
+    clearTimeout(loadingFailsafe);
+    hideLoading();
+  });
+
+
+  map.on('rotate', () => {
+    const b=Math.round(map.getBearing()), n=((b%360)+360)%360;
+    document.getElementById('bearing').textContent =
+      n+'° '+['С','СВ','В','ЮВ','Ю','ЮЗ','З','СЗ'][Math.round(n/45)%8];
+  });
+
+  // Home marker
+  const hel = document.createElement('div');
+  hel.innerHTML = '<div class="hdot"><div class="hring"></div></div>';
+  hel.style.cssText = 'position:relative;width:14px;height:14px;pointer-events:none;';
+  new maplibregl.Marker({element:hel,anchor:'center'}).setLngLat(HOME).addTo(map);
+
+    function mountNavigationIntoPanel() {
+    const host = document.getElementById('nav-host');
+    const wrapper = document.querySelector('.maplibregl-ctrl-top-right');
+    const group = wrapper?.querySelector('.maplibregl-ctrl-group');
+    if (!host || !group) return false;
+    if (!host.contains(group)) host.appendChild(group);
+    wrapper.classList.add('nav-mounted');
+    return true;
+  }
+
+// Hover cursor: show pointer when over any building layer
+  // We do this AFTER load so we know which layer IDs exist.
+
+  map.on('load', () => {
+    clearTimeout(loadingFailsafe);
+    hideLoading();
+    mountNavigationIntoPanel();
+    setTimeout(mountNavigationIntoPanel, 120);
+    setLd('стилизую здания...');
+    const layers = map.getStyle().layers;
+
+    // ── Darken base map ───────────────────────────────────
+    layers.forEach(lyr => {
+      const id=lyr.id.toLowerCase();
+      try {
+        if (lyr.type==='background') { map.setPaintProperty(lyr.id,'background-color','#03030a'); return; }
+        if (lyr.type==='fill'&&!id.includes('building')) {
+          map.setPaintProperty(lyr.id,'fill-color',
+            id.includes('water')||id.includes('ocean')||id.includes('lake') ? '#060d18' :
+            id.includes('park')||id.includes('green')||id.includes('forest')||id.includes('wood')||id.includes('grass')||id.includes('landuse') ? '#060e09' :
+            '#060610');
+          map.setPaintProperty(lyr.id,'fill-opacity',1);
+        }
+        if (lyr.type==='line') map.setPaintProperty(lyr.id,'line-color',
+          id.includes('water')||id.includes('river') ? '#0a1520' :
+          id.includes('motorway')||id.includes('trunk')||id.includes('primary') ? '#16162a' : '#0f0f1e');
+        if (lyr.type==='symbol') {
+          try{map.setPaintProperty(lyr.id,'text-color','#26263c');}catch(e){}
+          try{map.setPaintProperty(lyr.id,'text-halo-color','#030310');}catch(e){}
+          try{map.setPaintProperty(lyr.id,'text-halo-width',1.5);}catch(e){}
+          try{map.setPaintProperty(lyr.id,'icon-opacity',0);}catch(e){}
+        }
+      } catch(e) {}
+    });
+
+    // ── Dark base buildings ───────────────────────────────
+    layers.forEach(lyr => {
+      if (!lyr.id.toLowerCase().includes('building')) return;
+      try {
+        if (lyr.type==='fill') {
+          map.setPaintProperty(lyr.id,'fill-color','#16162a');
+          map.setPaintProperty(lyr.id,'fill-opacity',1);
+          map.setPaintProperty(lyr.id,'fill-outline-color','#22223a');
+        }
+        if (lyr.type==='fill-extrusion') {
+          map.setPaintProperty(lyr.id,'fill-extrusion-color','#16162a');
+          map.setPaintProperty(lyr.id,'fill-extrusion-opacity',1.0);
+        }
+      } catch(e) {}
+    });
+
+    // Collect building layer IDs for queryRenderedFeatures filter
+    buildingExtrusionLayerIds = layers
+      .filter(l => l.id.toLowerCase().includes('building') && l.type==='fill-extrusion')
+      .map(l => l.id);
+    buildingFillLayerIds = layers
+      .filter(l => l.id.toLowerCase().includes('building') && l.type==='fill')
+      .map(l => l.id);
+    buildingLayerIds = [...buildingExtrusionLayerIds, ...buildingFillLayerIds];
+
+    // ── Highlighted GeoJSON layer ─────────────────────────
+    // Stores exact geometries of clicked buildings — no ID collisions.
+    map.addSource('hl', {type:'geojson', data:markedFC()});
+
+    map.addLayer({
+      id:'hl-fill', type:'fill', source:'hl',
+      paint:{'fill-color':'#ff6b35','fill-opacity':1}
+    });
+    map.addLayer({
+      id:'hl-line', type:'line', source:'hl',
+      paint:{'line-color':'#ffaa80','line-width':1.5}
+    });
+    map.addLayer({
+      id:'hl-ext', type:'fill-extrusion', source:'hl',
+      paint:{
+        'fill-extrusion-color':'#ff6b35',
+        'fill-extrusion-height': ['coalesce',['get','render_height'],['get','height'],12],
+        'fill-extrusion-base':   ['coalesce',['get','render_min_height'],['get','min_height'],0],
+        'fill-extrusion-opacity': 1.0
+      }
+    });
+
+    // ── Radius ────────────────────────────────────────────
+    map.addSource('radius', {type:'geojson', data:makeCircle(HOME,RADIUS)});
+    map.addLayer({id:'r-fill',type:'fill',source:'radius',paint:{'fill-color':'#ff6b35','fill-opacity':0.04}});
+    map.addLayer({id:'r-stroke',type:'line',source:'radius',paint:{'line-color':'#ff6b35','line-opacity':0.35,'line-width':1.5,'line-dasharray':[6,6]}});
+
+    // ── Hover cursor ──────────────────────────────────────
+    // Attach to all building layers for visual feedback.
+    // No click handler here — clicking is handled at map level below.
+    buildingLayerIds.forEach(lid => {
+      map.on('mouseenter', lid, () => { map.getCanvas().style.cursor='pointer'; });
+      map.on('mouseleave', lid, () => { map.getCanvas().style.cursor=''; });
+    });
+
+    // ── THE CLICK: map-level, queryRenderedFeatures ───────
+    //
+    // WHY map.on('click') instead of layer-level handlers:
+    //   Layer-level handlers fire once PER MATCHING LAYER at the click
+    //   point, so 2 building layers = 2 events = 2 buildings added.
+    //   Map-level fires exactly ONCE per physical click, always.
+    //
+    // WHY queryRenderedFeatures(point, {layers}):
+    //   Returns only features from specified layers, sorted front-to-back.
+    //   features[0] is the topmost visible object under the cursor —
+    //   exactly what the user sees and intends to click.
+    //   This is a single feature, not a list — no duplicates possible.
+
+    const tipEl = document.getElementById('tip');
+
+    map.on('click', (e) => {
+      if (!buildingLayerIds.length) return;
+
+      const f = getTopBuildingFeature(map, e.point);
+      if (!f) return; // click was on road / ground / etc
+
+      const key = featureKey(f);
+      if (!key) return;
+
+      if (marked.has(key)) {
+        marked.delete(key);
+        toast('Отметка снята', false);
+        tipEl.textContent = 'Нажмите, чтобы отметить';
+      } else {
+        marked.set(key, f);
+        toast('Здание отмечено ✓', true);
+        tipEl.textContent = 'Нажмите, чтобы снять отметку';
+      }
+
+      map.getSource('hl').setData(markedFC());
+      updateStats();
+      saveMarks(false);
+    });
+
+    // Hover tooltip positioning
+    map.on('mousemove', (e) => {
+      const hit = getTopBuildingFeature(map, e.point);
+      if (hit) {
+        const key = featureKey(hit);
+        tipEl.textContent = key && marked.has(key)
+          ? 'Нажмите, чтобы снять отметку'
+          : 'Нажмите, чтобы отметить';
+        tipEl.style.left = (e.originalEvent.clientX+14)+'px';
+        tipEl.style.top  = (e.originalEvent.clientY-30)+'px';
+        tipEl.classList.add('show');
+      } else {
+        tipEl.classList.remove('show');
+      }
+    });
+
+});
+}
+
+// ── Controls ─────────────────────────────────────────────────
+function toggleRadius() {
+  showRadius=!showRadius;
+  const v=showRadius?'visible':'none', m=window._map;
+  if(m) ['r-fill','r-stroke'].forEach(id=>{if(m.getLayer(id))m.setLayoutProperty(id,'visibility',v);});
+  document.getElementById('btn-r').classList.toggle('on',showRadius);
+}
+function rotBy(d) { const m=window._map; if(m) m.easeTo({bearing:m.getBearing()+d,duration:400}); }
+function rotTo0()  { const m=window._map; if(m) m.easeTo({bearing:0,duration:500}); }
+function resetAll() {
+  if (!marked.size) return;
+  marked.clear();
+  window._map?.getSource('hl')?.setData(emptyFC());
+  updateStats();
+  saveMarks(false);
+  toast('Все отметки сброшены',false);
+}
+
+function setLd(t) { const e=document.getElementById('ld-txt'); if(e) e.textContent=t; }
+function toast(msg,add) {
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className='on '+(add?'add':'rem');
+  if(toastTmr) clearTimeout(toastTmr);
+  toastTmr=setTimeout(()=>{t.className='';},2300);
+}
+
+document.getElementById('address-input')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') applyAddress();
+});
+
+window.addEventListener('beforeunload', () => saveMarks(false));
+
+init();
+</script>
+
+<script>
+window.addEventListener('pageshow', () => {
+  setTimeout(() => {
+    const loading = document.getElementById('loading');
+    const map = document.getElementById('map');
+    if (loading && map && !map.querySelector('.maplibregl-canvas')) {
+      loading.classList.add('fade');
+    }
+  }, 5000);
+});
+</script>
+
+</body>
+</html>
